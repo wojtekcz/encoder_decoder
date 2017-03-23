@@ -5,11 +5,14 @@
 from keras.models import Sequential
 from keras.layers.recurrent import LSTM
 from keras.layers.embeddings import Embedding
-from keras.layers.core import RepeatVector, TimeDistributedDense, Activation
+# from keras.layers.core import RepeatVector, TimeDistributedDense, Activation
+from keras.layers.core import RepeatVector, Activation, Dense
+from keras.layers.wrappers import TimeDistributed
 from seq2seq.layers.decoders import LSTMDecoder, LSTMDecoder2, AttentionDecoder
 import time
 import numpy as np
 import re
+from functools import reduce
 
 __author__ = 'http://jacoxu.com'
 
@@ -141,7 +144,7 @@ def main():
     idx_to_word = dict((i + 1, c) for i, c in enumerate(vocab))  # 解码时需要将数字index映射成字符
     inputs_train, tars_train = vectorize_stories(input_list, tar_list, word_to_idx, input_maxlen, tar_maxlen, vocab_size)
 
-    decoder_mode = 1  # 0 最简单模式，1 [1]向后模式，2 [2] Peek模式，3 [3]Attention模式
+    decoder_mode = 0  # 0 最简单模式，1 [1]向后模式，2 [2] Peek模式，3 [3]Attention模式
     if decoder_mode == 3:
         encoder_top_layer = LSTM(hidden_dim, return_sequences=True)
     else:
@@ -169,7 +172,9 @@ def main():
         en_de_model.add(RepeatVector(tar_maxlen))
     en_de_model.add(decoder_top_layer)
 
-    en_de_model.add(TimeDistributedDense(output_dim))
+    # en_de_model.add(TimeDistributedDense(output_dim))
+    en_de_model.add(TimeDistributed(Dense(output_dim)))
+    
     en_de_model.add(Activation('softmax'))
     print('Compiling...')
     time_start = time.time()
@@ -177,7 +182,8 @@ def main():
     time_end = time.time()
     print('Compiled, cost time:%fsecond!' % (time_end - time_start))
     for iter_num in range(5000):
-        en_de_model.fit(inputs_train, tars_train, batch_size=3, nb_epoch=1, show_accuracy=True)
+        # en_de_model.fit(inputs_train, tars_train, batch_size=3, epochs=1, show_accuracy=True)
+        en_de_model.fit(inputs_train, tars_train, batch_size=3, epochs=1)
         out_predicts = en_de_model.predict(inputs_train)
         for i_idx, out_predict in enumerate(out_predicts):
             predict_sequence = []

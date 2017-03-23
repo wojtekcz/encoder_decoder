@@ -2,7 +2,8 @@
 from __future__ import absolute_import
 from keras import backend as K
 from keras.layers.recurrent import LSTM
-from keras import activations, initializations
+from keras import activations
+# from keras import activations, initializations
 import numpy as np
 
 class StateTransferLSTM(LSTM):

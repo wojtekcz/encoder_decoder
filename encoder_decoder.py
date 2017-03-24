@@ -13,6 +13,7 @@ import time
 import numpy as np
 import re
 from functools import reduce
+from enum import Enum
 
 __author__ = 'http://jacoxu.com'
 
@@ -103,6 +104,13 @@ def tokenize(sent):
     return [x.strip() for x in re.split('(\W+)?', sent) if x.strip()]
 
 
+class SequenceType(Enum):
+    BASIC = 0
+    FEEDBACK = 1
+    PEEK = 2
+    ATTENTION = 3
+
+
 def main():
     input_text = ['1 2 3 4 5'
                   , '6 7 8 9 10'
@@ -144,47 +152,69 @@ def main():
     idx_to_word = dict((i + 1, c) for i, c in enumerate(vocab))  # 解码时需要将数字index映射成字符
     inputs_train, tars_train = vectorize_stories(input_list, tar_list, word_to_idx, input_maxlen, tar_maxlen, vocab_size)
 
-    decoder_mode = 0  # 0 最简单模式，1 [1]向后模式，2 [2] Peek模式，3 [3]Attention模式
-    if decoder_mode == 3:
-        encoder_top_layer = LSTM(hidden_dim, return_sequences=True)
-    else:
-        encoder_top_layer = LSTM(hidden_dim)
+    # network topologies
+    basic_layers = [
+        Embedding(input_dim=vocab_size, output_dim=hidden_dim, input_length=input_maxlen),
 
-    if decoder_mode == 0:
-        decoder_top_layer = LSTM(hidden_dim, return_sequences=True)
-        decoder_top_layer.get_weights()
-    elif decoder_mode == 1:
-        decoder_top_layer = LSTMDecoder(hidden_dim=hidden_dim, output_dim=hidden_dim
-                                        , output_length=tar_maxlen, state_input=False, return_sequences=True)
-    elif decoder_mode == 2:
-        decoder_top_layer = LSTMDecoder2(hidden_dim=hidden_dim, output_dim=hidden_dim
-                                         , output_length=tar_maxlen, state_input=False, return_sequences=True)
-    elif decoder_mode == 3:
-        decoder_top_layer = AttentionDecoder(hidden_dim=hidden_dim, output_dim=hidden_dim
-                                             , output_length=tar_maxlen, state_input=False, return_sequences=True)
+        LSTM(output_dim=hidden_dim),
+        RepeatVector(tar_maxlen),
+        LSTM(output_dim=hidden_dim, return_sequences=True),
 
-    en_de_model = Sequential()
-    en_de_model.add(Embedding(input_dim=vocab_size,
-                              output_dim=hidden_dim,
-                              input_length=input_maxlen))
-    en_de_model.add(encoder_top_layer)
-    if decoder_mode == 0:
-        en_de_model.add(RepeatVector(tar_maxlen))
-    en_de_model.add(decoder_top_layer)
+        TimeDistributed(Dense(output_dim)),
+        Activation('softmax')
+    ]
 
-    # en_de_model.add(TimeDistributedDense(output_dim))
-    en_de_model.add(TimeDistributed(Dense(output_dim)))
-    
-    en_de_model.add(Activation('softmax'))
+    feedback_layers = [
+        Embedding(input_dim=vocab_size,  output_dim=hidden_dim, input_length=input_maxlen),
+
+        LSTM(output_dim=hidden_dim),
+        LSTMDecoder(hidden_dim=hidden_dim,  output_dim=hidden_dim, output_length=tar_maxlen,
+                    state_input=False, return_sequences=True),
+
+        TimeDistributed(Dense(output_dim)),
+        Activation('softmax')
+    ]
+
+    peek_layers = [
+        Embedding(input_dim=vocab_size, output_dim=hidden_dim, input_length=input_maxlen),
+
+        LSTM(output_dim=hidden_dim),
+        LSTMDecoder2(hidden_dim=hidden_dim, output_dim=hidden_dim, output_length=tar_maxlen,
+                    state_input=False, return_sequences=True),
+
+        TimeDistributed(Dense(output_dim)),
+        Activation('softmax')
+    ]
+
+    attention_layers = [
+        Embedding(input_dim=vocab_size, output_dim=hidden_dim, input_length=input_maxlen),
+
+        LSTM(output_dim=hidden_dim, return_sequences=True),
+        AttentionDecoder(hidden_dim=hidden_dim, output_dim=hidden_dim, output_length=tar_maxlen,
+                         state_input=False, return_sequences=True),
+
+        TimeDistributed(Dense(output_dim)),
+        Activation('softmax')
+    ]
+
+    layers = {
+        SequenceType.BASIC   :  basic_layers,
+        SequenceType.FEEDBACK:  feedback_layers,
+        SequenceType.PEEK:      peek_layers,
+        SequenceType.ATTENTION: attention_layers,
+    }
+
+    model = Sequential(layers=layers[SequenceType.ATTENTION])
+
     print('Compiling...')
     time_start = time.time()
-    en_de_model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
     time_end = time.time()
     print('Compiled, cost time:%fsecond!' % (time_end - time_start))
+
     for iter_num in range(5000):
-        # en_de_model.fit(inputs_train, tars_train, batch_size=3, epochs=1, show_accuracy=True)
-        en_de_model.fit(inputs_train, tars_train, batch_size=3, epochs=1)
-        out_predicts = en_de_model.predict(inputs_train)
+        model.fit(inputs_train, tars_train, batch_size=3, nb_epoch=1)
+        out_predicts = model.predict(inputs_train)
         for i_idx, out_predict in enumerate(out_predicts):
             predict_sequence = []
             for predict_vector in out_predict:
